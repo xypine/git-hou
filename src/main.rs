@@ -1,12 +1,8 @@
-use git2::Repository;
+use git2::{Branch, Repository, TreeWalkResult};
 
-fn main() {
-    let repo = match Repository::open(".") {
-        Ok(repo) => repo,
-        Err(e) => panic!("failed to open: {}", e),
-    };
+fn find_head_branch(repo: &Repository) -> Option<Branch> {
     let mut branches = repo.branches(Some(git2::BranchType::Local)).expect("Finding branches");
-    let default_branch = branches.find_map(|branch_result|
+    branches.find_map(|branch_result|
             match branch_result {
                 Ok((branch, _branch_type)) => {
                     if branch.is_head() {
@@ -23,5 +19,20 @@ fn main() {
                     None
                 },
             }
-    ).expect("Finding HEAD branch");
+    )
+}
+
+fn main() {
+    let repo = match Repository::open(".") {
+        Ok(repo) => repo,
+        Err(e) => panic!("failed to open: {}", e),
+    };
+    let branch = find_head_branch(&repo).expect("Finding HEAD branch");
+    let branch_reference = branch.into_reference();
+    println!("Found reference {}", branch_reference.name().expect("Decoding reference name"));
+    let head_commit = branch_reference.peel_to_commit().expect("Finding latest commit");
+    println!("Found commit {}", head_commit.id());
+    for parent in head_commit.parents() {
+        println!("Found parent {}", parent.id());
+    }
 }
