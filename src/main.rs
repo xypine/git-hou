@@ -10,7 +10,9 @@ fn main() {
     let commit_times = get_branch_commit_times(branch);
 
     let estimate = estimate_hours(commit_times);
-    println!("{estimate}");
+    println!("\nESTIMATE");
+    println!("   {estimate}");
+    println!(" ≈ {} hours", estimate.round());
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -20,14 +22,14 @@ impl Display for CommitWithTimestamp {
         write!(f, "{}", self.1)
     }
 }
-impl PartialOrd for CommitWithTimestamp {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        other.1.partial_cmp(&self.1)
-    }
-}
 impl Ord for CommitWithTimestamp {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         other.1.cmp(&self.1)
+    }
+}
+impl PartialOrd for CommitWithTimestamp {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -53,7 +55,7 @@ fn estimate_hours(mut dates: Vec<CommitWithTimestamp>) -> f64 {
             return diff_minutes / 60.0;
         }
         
-        return FIRST_COMMIT_ADDITION_MINUTES / 60.0;
+        FIRST_COMMIT_ADDITION_MINUTES / 60.0
     }).reduce(|acc, e| acc + e).unwrap_or_default();
 
     hours
