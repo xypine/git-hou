@@ -1,13 +1,62 @@
-use std::fmt::Display;
-
+use std::{collections::BTreeSet, fmt::Display};
 use git2::{Branch, Commit, Repository};
 
-#[derive(Debug)]
-struct Timestamp(i64);
-impl Display for Timestamp {
+fn main() {
+    let repo = match Repository::open(".") {
+        Ok(repo) => repo,
+        Err(e) => panic!("failed to open: {}", e),
+    };
+    let branch = find_head_branch(&repo).expect("Finding HEAD branch");
+    let commit_times = get_branch_commit_times(branch);
+
+    let estimate = estimate_hours(commit_times);
+    println!("{estimate}");
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct CommitWithTimestamp(git2::Oid, i64);
+impl Display for CommitWithTimestamp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.1)
     }
+}
+impl PartialOrd for CommitWithTimestamp {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        other.1.partial_cmp(&self.1)
+    }
+}
+impl Ord for CommitWithTimestamp {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other.1.cmp(&self.1)
+    }
+}
+
+const MAX_COMMIT_DIFF_MINUTES: f64 = 120.0;
+const FIRST_COMMIT_ADDITION_MINUTES: f64 = 120.0;
+fn estimate_hours(mut dates: Vec<CommitWithTimestamp>) -> f64 {
+    let dates_total = dates.len();
+    if dates_total < 2 {
+        return 0.0;
+    }
+
+    dates.reverse();
+
+    let hours = dates.iter().enumerate().map(|(index, date)| {
+        if index == dates_total - 1 {
+            return 0f64;
+        }
+
+        let next_date = &dates[index + 1];
+        let diff_minutes = (next_date.1 - date.1) as f64 / 60.0;
+
+        if diff_minutes < MAX_COMMIT_DIFF_MINUTES {
+            return diff_minutes / 60.0;
+        }
+        
+        return FIRST_COMMIT_ADDITION_MINUTES / 60.0;
+    }).reduce(|acc, e| acc + e).unwrap_or_default();
+
+    hours
 }
 
 fn find_head_branch(repo: &Repository) -> Option<Branch> {
@@ -32,16 +81,24 @@ fn find_head_branch(repo: &Repository) -> Option<Branch> {
     )
 }
 
-fn extract_commit_time(commit: &Commit) -> Timestamp {
-    Timestamp(commit.time().seconds())
+fn extract_commit_time(commit: &Commit) -> CommitWithTimestamp {
+    CommitWithTimestamp(commit.id(), commit.time().seconds())
 }
 
-fn main() {
-    let repo = match Repository::open(".") {
-        Ok(repo) => repo,
-        Err(e) => panic!("failed to open: {}", e),
-    };
-    let branch = find_head_branch(&repo).expect("Finding HEAD branch");
+fn get_commit_parent_times(commit: Commit) -> BTreeSet<CommitWithTimestamp> {
+    let mut parents = BTreeSet::new();
+    for parent in commit.parents() {
+        let commit_info = extract_commit_time(&parent);
+        //let mut parents = get_commit_parent_times(parent);
+        parents.insert(commit_info);
+        for gparent in get_commit_parent_times(parent) {
+            parents.insert(gparent);
+        }
+    }
+    parents
+}
+
+fn get_branch_commit_times(branch: Branch) -> Vec<CommitWithTimestamp> {
     let branch_reference = branch.into_reference();
     println!("Found reference {}", branch_reference.name().expect("Decoding reference name"));
 
@@ -49,14 +106,16 @@ fn main() {
     let head_commit_time = extract_commit_time(&head_commit);
     println!("Found commit {} at {head_commit_time}", head_commit.id());
 
-    let mut commit_times: Vec<Timestamp> = Vec::with_capacity(head_commit.parent_count());
+    let mut commit_times: Vec<CommitWithTimestamp> = Vec::with_capacity(head_commit.parent_count());
     commit_times.push(head_commit_time);
 
-    for parent in head_commit.parents() {
-        let time = extract_commit_time(&parent);
-        println!("Found commit {} at {time}", parent.id());
-        commit_times.push(time);
+    for commit in get_commit_parent_times(head_commit) {
+        let hash = commit.0;
+        let time = commit.1;
+        println!("Found commit {hash} at {time}");
+        commit_times.push(commit);
     }
 
-    println!("{:?}", commit_times);
+    commit_times
 }
+
