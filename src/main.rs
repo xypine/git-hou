@@ -91,7 +91,9 @@ fn get_commit_parent_times(commit: Commit) -> BTreeSet<CommitWithTimestamp> {
     let mut parents = BTreeSet::new();
     for parent in commit.parents() {
         let commit_info = extract_commit_time(&parent);
-        //let mut parents = get_commit_parent_times(parent);
+        if parents.contains(&commit_info) {
+            continue;
+        }
         parents.insert(commit_info);
         for gparent in get_commit_parent_times(parent) {
             parents.insert(gparent);
